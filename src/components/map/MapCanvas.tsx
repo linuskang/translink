@@ -15,7 +15,7 @@ import type { SelectedFeature, VehicleEntity } from "@/types";
 // Next.js/Turbopack can't inline the worker blob — point to the file in /public
 setWorkerUrl("/maplibre-gl-csp-worker.js");
 
-const STYLE_URL = `https://api.maptiler.com/maps/openstreetmap-dark/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_KEY}`;
+const STYLE_URL = `https://api.maptiler.com/maps/openstreetmap-dark/style.json?key=bGeKQuErbYq34iLTlCjO`;
 const SEQ_CENTER: [number, number] = [153.0251, -27.4698];
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 const VEHICLE_COLOR = "#f97316";
