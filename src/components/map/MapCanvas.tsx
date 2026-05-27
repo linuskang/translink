@@ -122,6 +122,15 @@ export default function MapCanvas() {
             map.getCanvas().style.cursor = "";
           });
 
+          const geolocate = new maplibregl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true,
+            showUserHeading: true,
+            showAccuracyCircle: true,
+          });
+          map.addControl(geolocate, "bottom-right");
+          map.once("idle", () => geolocate.trigger());
+
           setMapReady(true);
         });
       })
