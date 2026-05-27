@@ -1,0 +1,8 @@
+services:
+  app:
+    image: ghcr.io/linuskang/transit-app:latest
+    ports:
+      - "3000:3000"
+    environment:
+      VEHICLE_API_URL: http://10.0.7.184:8010/v1/seq/vehicle_positions
+    restart: unless-stopped
