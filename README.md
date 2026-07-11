@@ -1,276 +1,258 @@
-# Seq
+# Translink
 
-View the world through one, unified interface.
+Real-time SEQ (South East Queensland) transit map and API, organized as a
+Turborepo monorepo.
 
-Seq is a real-time transit visualization and mapping platform that displays vehicle positions, service disruptions, and transit information on an interactive map. Built with Next.js 16, React 19, and MapTiler GL.
+## Apps
 
-## Features
+| App | Path       | Stack                                             | Port |
+| --- | ---------- | ------------------------------------------------- | ---- |
+| Web | `apps/web` | Next.js 16, React 19, MapLibre GL, TanStack Query | 3000 |
+| API | `apps/api` | TypeScript, Hono, Node 22, `@hono/node-server`    | 8000 |
 
-- **Interactive Map**: Real-time vehicle tracking and transit visualization using MapTiler SDK and MapLibre GL
-- **Vehicle Tracking**: Display GTFS real-time vehicle positions and transit data
-- **Disruptions Panel**: Monitor service alerts and transit disruptions in real-time
-- **Layer Controller**: Toggle and manage map layers for different data types
-- **Info Panel**: Access detailed information about selected entities
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
-- **Dark Mode Support**: Theme switching with next-themes
+The **web** app is a Next.js frontend that renders a live transit map with
+real-time vehicle positions. The **api** app is a Hono server that polls the
+Translink GTFS-realtime feed every 30 seconds, caches the protobuf locally,
+and serves parsed vehicle positions as JSON.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+- **Node.js** 22+
+- **npm** 10+
+- **Docker** (for container builds / production)
 
-- **Node.js**: v18.0.0 or higher
-- **npm**: v9.0.0 or higher (or yarn/pnpm/bun)
-- **Git**: For version control
-
-## Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd seq
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables** (if needed):
-   Create a `.env.local` file in the root directory and add any required API keys:
-   ```
-   NEXT_PUBLIC_MAPTILER_API_KEY=your_api_key_here
-   ```
-
-## Getting Started
-
-### Development Server
-
-To start the development server with hot-reload:
+## Quick Start
 
 ```bash
+# Install dependencies
+npm install
+
+# Copy the example env file and fill in your keys
+cp .example.env .env.local
+
+# Start both apps in dev mode
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+Default URLs:
 
-The application will automatically reload as you make changes to the code.
+- Web: <http://localhost:3000>
+- API: <http://localhost:8000>
 
-### Building for Production
+## Environment Variables
 
-To create a production build:
+Create `.env.local` in the repo root (see `.example.env`):
+
+| Variable                   | Scope             | Required | Description                                                                                                               |
+| -------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_MAPTILER_KEY` | Web (public)      | Yes      | MapTiler API key for map tiles. Exposed to the browser.                                                                   |
+| `VEHICLE_API_URL`          | Web (server only) | Yes      | Upstream vehicle positions API. Defaults to `http://localhost:8000/v1/seq/vehicle_positions`. Not exposed to the browser. |
+| `PORT`                     | API               | No       | API server port. Defaults to `8000`.                                                                                      |
+
+In Docker Compose, `VEHICLE_API_URL` is set to `http://api:8000/v1/seq/vehicle_positions`
+so the web container proxies to the API container over the internal network.
+
+## Development
+
+Run both apps concurrently through Turbo:
 
 ```bash
-npm run build
+npm run dev          # turbo run dev (both apps)
 ```
 
-To start the production server:
+Run a single app:
 
 ```bash
-npm start
+npm --workspace @translink/web run dev
+npm --workspace @translink/api run dev
 ```
 
-### Linting
+### How It Works
 
-To check code quality and style:
+1. The API backgrounds a fetch loop that polls
+   `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions`
+   every 30 seconds and writes the raw protobuf to
+   `apps/api/data/SEQ_VehiclePositions.pb`.
+2. On each request to `GET /v1/seq/vehicle_positions`, the API reads the
+   cached protobuf, decodes it with `gtfs-realtime-bindings`, and returns
+   a JSON array of vehicle positions.
+3. The web app's `/api/vehicles` route (Next.js server route) proxies to the
+   API. The client polls this route every 30 seconds via TanStack Query.
+4. The map renders vehicle positions as GeoJSON points, with smooth
+   interpolation between fetches via `requestAnimationFrame`.
+
+## Scripts
+
+Run from the repo root:
+
+| Command                | Description                         |
+| ---------------------- | ----------------------------------- |
+| `npm run dev`          | Start both apps in dev mode (Turbo) |
+| `npm run build`        | Build all apps (Turbo)              |
+| `npm run lint`         | Lint all apps (Turbo)               |
+| `npm run format`       | Format all files with Prettier      |
+| `npm run format:check` | Check formatting without writing    |
+
+Per-app commands:
 
 ```bash
-npm run lint
+npm --workspace @translink/web run dev      # next dev
+npm --workspace @translink/web run build    # next build
+npm --workspace @translink/web run lint     # eslint
+
+npm --workspace @translink/api run dev      # tsx watch src/index.ts
+npm --workspace @translink/api run build     # tsc -> dist/
+npm --workspace @translink/api run start    # node dist/index.js
+npm --workspace @translink/api run lint     # tsc --noEmit
 ```
 
 ## Project Structure
 
-```
-src/
-├── app/                    # Next.js app directory
-│   ├── page.tsx           # Main map interface
-│   ├── layout.tsx         # Root layout
-│   ├── providers.tsx      # Context providers
-│   └── globals.css        # Global styles
-├── components/
-│   ├── map/               # Map-related components
-│   │   ├── MapCanvas.tsx       # Main map canvas
-│   │   ├── LayerController.tsx # Layer management
-│   │   ├── DisruptionsPanel.tsx# Alerts & disruptions
-│   │   └── InfoPanel.tsx       # Entity details
-│   └── ui/                # Reusable UI components
-├── hooks/                 # Custom React hooks
-│   ├── useBubblers.ts     # Waypoint data hook
-│   ├── useVehicles.ts     # Vehicle tracking hook
-│   ├── useDisruptions.ts  # Disruptions data hook
-│   └── use-mobile.ts      # Mobile detection
-├── lib/                   # Utility functions
-│   ├── geo.ts            # Geospatial utilities
-│   ├── overpass.ts       # OpenStreetMap Overpass API
-│   ├── seqApi.ts         # Seq API integration
-│   └── utils.ts          # General utilities
-├── types/                # TypeScript definitions
-│   ├── api.ts            # API interfaces
-│   └── index.ts          # Type exports
-└── public/               # Static assets
-    └── maplibre-gl-csp-worker.js # Map worker script
-```
-
-## Key Technologies
-
-- **Framework**: [Next.js 16](https://nextjs.org/) - React metaframework with App Router
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/) with TailwindCSS v4
-- **UI Components**: [shadcn/ui](https://ui.shadcn.com/) & [Radix UI](https://www.radix-ui.com/)
-- **Mapping**: [MapTiler SDK](https://docs.maptiler.com/sdk-js/) with MapLibre GL
-- **Data Fetching**: [@tanstack/react-query](https://tanstack.com/query/) for server state management
-- **Theme**: [next-themes](https://github.com/pacocoursey/next-themes) for dark mode
-- **Charts**: [Recharts](https://recharts.org/) for data visualization
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-
-## Development Workflow
-
-### Adding a New Component
-
-1. Create a new component file in `src/components/`
-2. Use TypeScript with proper type definitions
-3. Follow the existing code style and conventions
-4. Import UI components from `src/components/ui/`
-
-### Adding a New Hook
-
-1. Create a new hook file in `src/hooks/`
-2. Use the `use` prefix for the filename and export name
-3. Document the hook's purpose and usage
-
-### Fetching Data
-
-Use `@tanstack/react-query` for data fetching:
-
-```typescript
-import { useQuery } from '@tanstack/react-query';
-
-const { data, isLoading, error } = useQuery({
-  queryKey: ['entities'],
-  queryFn: () => fetch('/api/entities').then(r => r.json()),
-});
+```text
+.
+├── .github/workflows/
+│   └── build.yml                    # CI: builds and pushes both GHCR images
+├── apps/
+│   ├── api/
+│   │   ├── src/
+│   │   │   ├── index.ts             # Hono app + server bootstrap
+│   │   │   ├── updater.ts           # Background Translink fetch loop
+│   │   │   └── positions.ts         # GTFS-realtime protobuf parsing
+│   │   ├── data/                    # Runtime cache (gitignored, Docker volume)
+│   │   ├── Dockerfile
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   └── web/
+│       ├── src/
+│       │   ├── app/                 # Next.js App Router
+│       │   │   ├── api/vehicles/    # Server route proxying to the API
+│       │   │   ├── layout.tsx
+│       │   │   ├── page.tsx         # Map page
+│       │   │   └── providers.tsx    # TanStack Query provider
+│       │   ├── components/map/      # MapCanvas + InfoPanel
+│       │   ├── components/ui/       # shadcn/ui components
+│       │   ├── hooks/               # useVehicles, useIsMobile
+│       │   ├── lib/                 # geo helpers, cn()
+│       │   └── types/               # Shared TypeScript types
+│       ├── public/
+│       ├── Dockerfile
+│       ├── next.config.ts
+│       └── package.json
+├── .dockerignore
+├── .gitignore
+├── .prettierrc
+├── .prettierignore
+├── .example.env
+├── docker-compose.yml
+├── package.json
+├── package-lock.json
+└── turbo.json
 ```
 
-## API Integration
+## API Reference
 
-The application integrates with:
+### `GET /`
 
-- **GTFS Real-time API**: For vehicle positions and trip updates
-- **OpenStreetMap Overpass API**: For geographic data queries
-- **Seq API**: Custom backend for disruptions and local data
+Service metadata.
 
-## Configuration
+**Response:**
 
-Key configuration files:
+```json
+{
+  "service": "Transit Live API",
+  "description": "Real-time Brisbane Transit (SEQ) vehicle position tracking",
+  "version": "1.0.0",
+  "status": "operational",
+  "endpoints": { ... },
+  "update_interval": "30 seconds",
+  "data_source": "https://gtfsrt.api.translink.com.au/..."
+}
+```
 
-- `next.config.ts` - Next.js configuration
-- `tsconfig.json` - TypeScript configuration
-- `tailwind.config.mjs` - Tailwind CSS configuration
-- `eslint.config.mjs` - ESLint rules
-- `components.json` - shadcn/ui configuration
-- `postcss.config.mjs` - PostCSS configuration
+### `GET /v1/seq/vehicle_positions`
 
-## Deployment
+Cached vehicle positions from Translink GTFS realtime.
 
-### Deploy on Vercel (Recommended)
+**Response:**
 
-1. Push your code to a Git repository (GitHub, GitLab, or Bitbucket)
-2. Go to [Vercel](https://vercel.com/new) and import your repository
-3. Configure environment variables if needed
-4. Click "Deploy"
+```json
+{
+    "vehicles": [
+        {
+            "vehicle": "DE58B3C0...",
+            "route": "282",
+            "trip": "37632990-TDEV 26_27-43012",
+            "lat": -27.585,
+            "lon": 153.281,
+            "bearing": 0
+        }
+    ]
+}
+```
 
-For more details, see [Next.js Deployment Documentation](https://nextjs.org/docs/app/building-your-application/deploying)
+## Docker
 
-### Deploy with Docker
-
-A Dockerfile is included for containerized deployment:
+### Validate the production compose file
 
 ```bash
-docker build -t seq .
-docker run -p 3000:3000 seq
+docker compose config
 ```
 
-## Environment Variables
-
-Create a `.env.local` file in the root directory:
-
-```env
-# Map API Keys
-NEXT_PUBLIC_MAPTILER_API_KEY=your_maptiler_key
-
-# API Endpoints
-NEXT_PUBLIC_API_URL=https://api.example.com
-```
-
-Note: Variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
-
-## Troubleshooting
-
-### Port 3000 Already in Use
-
-If port 3000 is already in use, specify a different port:
+### Build and run both services
 
 ```bash
-npm run dev -- -p 3001
+docker compose up --build
 ```
 
-### Module Not Found Errors
+### Images
 
-Clear the Next.js cache and reinstall dependencies:
+| Service | Image                        | Build context   | Dockerfile            |
+| ------- | ---------------------------- | --------------- | --------------------- |
+| Web     | `ghcr.io/<owner>/<repo>-app` | `.` (repo root) | `apps/web/Dockerfile` |
+| API     | `ghcr.io/<owner>/<repo>-api` | `apps/api`      | `apps/api/Dockerfile` |
 
-```bash
-rm -rf .next node_modules
-npm install
-npm run dev
-```
+Both images use `node:22-alpine` multi-stage builds:
 
-### Build Errors
+- **Web**: builder installs all workspace deps with `npm ci`, runs
+  `next build` (standalone output), then copies the standalone server +
+  static assets into a minimal runner image.
+- **API**: builder installs deps and runs `tsc`, then the runner installs
+  production-only deps and copies `dist/`. The `data/` directory is a
+  named volume (`translink-api-data`) for the protobuf cache.
 
-Check for TypeScript errors:
+### Health Checks
 
-```bash
-npm run build
-```
+The API Dockerfile includes a health check (`GET /` every 30s). The web
+service depends on the API being healthy before starting.
 
-Run linting to check for code issues:
+## CI/CD
 
-```bash
-npm run lint
-```
+A single GitHub Actions workflow (`.github/workflows/build.yml`) builds both
+GHCR images in parallel via a matrix:
 
-## Performance Optimization
+| Matrix target | Image                        | Build args                 |
+| ------------- | ---------------------------- | -------------------------- |
+| `app`         | `ghcr.io/<owner>/<repo>-app` | `NEXT_PUBLIC_MAPTILER_KEY` |
+| `api`         | `ghcr.io/<owner>/<repo>-api` | _(none)_                   |
 
-The application uses several optimization techniques:
+**Triggers:** push or PR to `main`/`master`, plus `workflow_dispatch`.
 
-- **Dynamic Imports**: Map component uses dynamic import to reduce initial bundle
-- **Code Splitting**: Automatic by Next.js with the App Router
-- **Image Optimization**: Using Next.js Image component
-- **Font Optimization**: Using next/font with Geist
+**Behavior:**
 
-## Contributing
+- Pull requests build images without pushing (validates the build).
+- Pushes to the default branch build and push to GHCR with tags:
+    - `latest` (default branch only)
+    - `<branch>` (branch name)
+    - `<branch>-<sha>` (short commit SHA)
+    - Semantic version tags on git tags (`v1.0.0`, `v1.0`, `v1`)
 
-Contributions are welcome! Please follow these steps:
+**Caching:** each target uses a scoped GitHub Actions cache (`type=gha`)
+to avoid rebuilding layers across runs.
 
-1. Create a new branch for your feature
-2. Make your changes and test thoroughly
-3. Ensure code passes linting: `npm run lint`
-4. Submit a pull request with a clear description
+**Required secrets:**
+
+- `NEXT_PUBLIC_MAPTILER_KEY` — used as a Docker build arg for the web image.
 
 ## License
 
-This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0). See the LICENSE file for details.
-
-**Author**: linuskang  
-**Version**: 0.0.1
-
-## Additional Resources
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [React Documentation](https://react.dev)
-- [TypeScript Handbook](https://www.typescriptlang.org/docs/)
-- [Tailwind CSS Docs](https://tailwindcss.com/docs)
-- [MapTiler SDK Docs](https://docs.maptiler.com/sdk-js/)
-- [shadcn/ui Components](https://ui.shadcn.com/)
-
-## Support
-
-For issues, questions, or suggestions, please open an issue on the repository.
+CC BY-NC 4.0 — see `package.json`.

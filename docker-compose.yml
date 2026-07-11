@@ -1,8 +1,29 @@
 services:
-  app:
-    image: ghcr.io/linuskang/transit-app:latest
-    ports:
-      - "3000:3000"
-    environment:
-      VEHICLE_API_URL: http://10.0.7.184:8010/v1/seq/vehicle_positions
-    restart: unless-stopped
+    app:
+        image: ghcr.io/linuskang/translink-app:latest
+        build:
+            context: .
+            dockerfile: apps/web/Dockerfile
+        restart: unless-stopped
+        ports:
+            - "3000:3000"
+        environment:
+            VEHICLE_API_URL: http://api:8000/v1/seq/vehicle_positions
+        depends_on:
+            api:
+                condition: service_healthy
+    api:
+        image: ghcr.io/linuskang/translink-api:latest
+        build:
+            context: apps/api
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        ports:
+            - "8000:8000"
+        environment:
+            - NODE_ENV=production
+        volumes:
+            - translink-api-data:/app/data
+
+volumes:
+    translink-api-data:

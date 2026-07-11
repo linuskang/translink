@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+.next/
+out/
+build/
+
+# turbo cache
+.turbo/
+**/.turbo/
+
+# auto-generated type declarations
+next-env.d.ts
+
+# vendored / generated assets
+apps/api/data/
+apps/web/public/maplibre-gl-csp-worker.js
+
+# lockfiles
+package-lock.json

@@ -1,11 +1,48 @@
-node_modules
-.next
+# dependencies
+node_modules/
+**/node_modules/
+
+# build outputs
+.next/
+**/.next/
+dist/
+**/dist/
+out/
+**/out/
+build/
+**/build/
+
+# turbo cache
+.turbo/
+**/.turbo/
+
+# env files (secrets)
+.env
+.env.*
+!.example.env
+
+# git
 .git
-.env*
-dist
-.vscode
-Dockerfile
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# docs
+**/*.md
+
+# docker
+docker-compose*.yml
 .dockerignore
-npm-debug.log
-yarn-error.log
-coverage
+
+# app data
+apps/api/data/
+
+# logs / temp
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

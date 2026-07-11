@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+    --color-bg: #0a0a0a;
+    --color-surface: rgba(255, 255, 255, 0.05);
+    --color-border: rgba(255, 255, 255, 0.1);
+    --color-text: #fafafa;
+    --color-muted: rgba(255, 255, 255, 0.4);
+    --color-accent: #f97316;
+    --font-sans: var(--font-geist-sans);
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
