@@ -229,10 +229,10 @@ service depends on the API being healthy before starting.
 A single GitHub Actions workflow (`.github/workflows/build.yml`) builds both
 GHCR images in parallel via a matrix:
 
-| Matrix target | Image                        | Build args                 |
-| ------------- | ---------------------------- | -------------------------- |
-| `app`         | `ghcr.io/<owner>/<repo>-app` | `NEXT_PUBLIC_MAPTILER_KEY` |
-| `api`         | `ghcr.io/<owner>/<repo>-api` | _(none)_                   |
+| Matrix target | Image                        | Build args |
+| ------------- | ---------------------------- | ---------- |
+| `app`         | `ghcr.io/<owner>/<repo>-app` | _(none)_   |
+| `api`         | `ghcr.io/<owner>/<repo>-api` | _(none)_   |
 
 **Triggers:** push or PR to `main`/`master`, plus `workflow_dispatch`.
 
@@ -248,9 +248,8 @@ GHCR images in parallel via a matrix:
 **Caching:** each target uses a scoped GitHub Actions cache (`type=gha`)
 to avoid rebuilding layers across runs.
 
-**Required secrets:**
-
-- `NEXT_PUBLIC_MAPTILER_KEY` — used as a Docker build arg for the web image.
+The MapTiler key is supplied to the web container at runtime through
+`NEXT_PUBLIC_MAPTILER_KEY`; the GHCR image does not contain it.
 
 ## License
 

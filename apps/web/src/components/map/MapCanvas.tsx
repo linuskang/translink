@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { GeoJSONSource, IControl, StyleSpecification } from "maplibre-gl";
@@ -10,7 +10,6 @@ import { useVehicles } from "@/hooks/useVehicles";
 import { vehiclesToGeoJSON } from "@/lib/geo";
 import type { Vehicle } from "@/types";
 
-const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? "";
 const SEQ_CENTER: [number, number] = [153.0251, -27.4698];
 const EMPTY_GEOJSON: FeatureCollection<Point> = {
     type: "FeatureCollection",
@@ -24,14 +23,14 @@ function lerp(start: number, end: number, progress: number) {
     return start + (end - start) * progress;
 }
 
-function createMapStyle(): StyleSpecification {
+function createMapStyle(maptilerKey: string): StyleSpecification {
     return {
         version: 8,
         sources: {
             basemap: {
                 type: "raster",
                 tiles: [
-                    `https://api.maptiler.com/maps/openstreetmap-dark/{z}/{x}/{y}@2x.png?key=${MAPTILER_KEY}`,
+                    `https://api.maptiler.com/maps/openstreetmap-dark/{z}/{x}/{y}@2x.png?key=${encodeURIComponent(maptilerKey)}`,
                 ],
                 tileSize: 512,
                 attribution:
@@ -55,6 +54,8 @@ function createControl(element: HTMLElement): IControl {
 
 export default function MapCanvas() {
     const containerRef = useRef<HTMLDivElement>(null);
+    const [maptilerKey, setMaptilerKey] = useState<string | null>(null);
+    const [configError, setConfigError] = useState<string | null>(null);
     const vehiclesRef = useRef<Vehicle[]>([]);
     const routeRef = useRef("");
     const refreshMapRef = useRef(() => {});
@@ -66,12 +67,41 @@ export default function MapCanvas() {
     const { data: vehicles = [], dataUpdatedAt, isError } = useVehicles();
 
     useEffect(() => {
+        let active = true;
+
+        fetch("/api/map-config", { cache: "no-store" })
+            .then(async (response) => {
+                const data: { maptilerKey?: string; error?: string } =
+                    await response.json();
+                if (!response.ok || !data.maptilerKey) {
+                    throw new Error(
+                        data.error ?? "Map configuration is unavailable"
+                    );
+                }
+                if (active) setMaptilerKey(data.maptilerKey);
+            })
+            .catch((error: unknown) => {
+                if (active) {
+                    setConfigError(
+                        error instanceof Error
+                            ? error.message
+                            : "Map configuration failed"
+                    );
+                }
+            });
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
         const container = containerRef.current;
-        if (!container || !MAPTILER_KEY) return;
+        if (!container || !maptilerKey) return;
 
         const map = new maplibregl.Map({
             container,
-            style: createMapStyle(),
+            style: createMapStyle(maptilerKey),
             center: SEQ_CENTER,
             zoom: 11,
             attributionControl: { compact: true },
@@ -207,7 +237,7 @@ export default function MapCanvas() {
             statusRef.current = null;
             map.remove();
         };
-    }, []);
+    }, [maptilerKey]);
 
     useEffect(() => {
         const starts = new Map(renderedPositionsRef.current);
@@ -247,13 +277,18 @@ export default function MapCanvas() {
         return () => window.clearInterval(interval);
     }, [dataUpdatedAt, isError, vehicles]);
 
-    if (!MAPTILER_KEY) {
+    if (configError) {
         return (
             <div className="grid h-screen place-items-center bg-black px-6 text-center">
-                <p className="text-sm text-white/60">
-                    Add NEXT_PUBLIC_MAPTILER_KEY to .env.local and restart the
-                    dev server.
-                </p>
+                <p className="text-sm text-white/60">{configError}</p>
+            </div>
+        );
+    }
+
+    if (!maptilerKey) {
+        return (
+            <div className="grid h-screen place-items-center bg-black">
+                <p className="text-sm text-white/40">Loading map...</p>
             </div>
         );
     }

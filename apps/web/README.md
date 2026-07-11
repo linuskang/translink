@@ -37,9 +37,9 @@ Set in `.env.local` at the repo root (see `.example.env`):
 | `NEXT_PUBLIC_MAPTILER_KEY` | Yes      | MapTiler API key for map tiles (exposed to browser).                                               |
 | `VEHICLE_API_URL`          | Yes      | Upstream API URL (server-side only). Defaults to `http://localhost:8000/v1/seq/vehicle_positions`. |
 
-In Docker Compose, `VEHICLE_API_URL` is set to
-`http://api:8000/v1/seq/vehicle_positions` so the web container proxies
-to the API container over the internal network.
+In Docker Compose, `VEHICLE_API_URL` points to the API container and
+`NEXT_PUBLIC_MAPTILER_KEY` is read by the web server at runtime. The public map
+configuration is served to the browser by `/api/map-config`.
 
 ## Architecture
 
