@@ -59,7 +59,9 @@ export default function MapCanvas() {
     const vehiclesRef = useRef<Vehicle[]>([]);
     const routeRef = useRef("");
     const refreshMapRef = useRef(() => {});
-    const statusRef = useRef<HTMLDivElement | null>(null);
+    const refreshStatusRef = useRef(() => {});
+    const dataUpdatedAtRef = useRef(0);
+    const vehiclesErrorRef = useRef(false);
     const startPositionsRef = useRef<Map<string, Position>>(new Map());
     const targetPositionsRef = useRef<Map<string, Position>>(new Map());
     const renderedPositionsRef = useRef<Map<string, Position>>(new Map());
@@ -112,8 +114,7 @@ export default function MapCanvas() {
 
         const status = document.createElement("div");
         status.className = "maplibregl-ctrl map-status-control";
-        status.textContent = "Loading vehicles...";
-        statusRef.current = status;
+        status.textContent = "Loading buses...";
 
         const search = document.createElement("input");
         search.className = "maplibregl-ctrl map-search-control";
@@ -140,6 +141,27 @@ export default function MapCanvas() {
             "bottom-right"
         );
         map.addControl(new maplibregl.ScaleControl(), "bottom-left");
+
+        refreshStatusRef.current = () => {
+            if (vehiclesErrorRef.current) {
+                status.textContent = "Buses unavailable";
+                return;
+            }
+
+            const updatedAt = dataUpdatedAtRef.current;
+            const remaining = updatedAt
+                ? Math.max(
+                      0,
+                      Math.ceil((30_000 - (Date.now() - updatedAt)) / 1000)
+                  )
+                : 0;
+            status.textContent = `${vehiclesRef.current.length} buses · refresh in ${remaining}s`;
+        };
+        refreshStatusRef.current();
+        const statusInterval = window.setInterval(
+            () => refreshStatusRef.current(),
+            1000
+        );
 
         resizeObserver.observe(container);
         map.on("load", () => {
@@ -234,7 +256,8 @@ export default function MapCanvas() {
             resizeObserver.disconnect();
             cancelAnimationFrame(animationFrame);
             refreshMapRef.current = () => {};
-            statusRef.current = null;
+            refreshStatusRef.current = () => {};
+            window.clearInterval(statusInterval);
             map.remove();
         };
     }, [maptilerKey]);
@@ -254,27 +277,10 @@ export default function MapCanvas() {
         targetPositionsRef.current = targets;
         transitionStartedRef.current = performance.now();
         vehiclesRef.current = vehicles;
+        dataUpdatedAtRef.current = dataUpdatedAt;
+        vehiclesErrorRef.current = isError;
         refreshMapRef.current();
-
-        function updateStatus() {
-            if (!statusRef.current) return;
-            if (isError) {
-                statusRef.current.textContent = "Vehicles unavailable";
-                return;
-            }
-
-            const remaining = dataUpdatedAt
-                ? Math.max(
-                      0,
-                      Math.ceil((30_000 - (Date.now() - dataUpdatedAt)) / 1000)
-                  )
-                : 0;
-            statusRef.current.textContent = `${vehicles.length} vehicles · refresh in ${remaining}s`;
-        }
-
-        updateStatus();
-        const interval = window.setInterval(updateStatus, 1000);
-        return () => window.clearInterval(interval);
+        refreshStatusRef.current();
     }, [dataUpdatedAt, isError, vehicles]);
 
     if (configError) {
