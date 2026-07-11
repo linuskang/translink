@@ -4,11 +4,12 @@ WORKDIR /repo
 ARG NEXT_PUBLIC_MAPTILER_KEY
 ENV NEXT_PUBLIC_MAPTILER_KEY=${NEXT_PUBLIC_MAPTILER_KEY}
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package*.json ./
 COPY apps/web/package.json ./apps/web/package.json
 COPY apps/api/package.json ./apps/api/package.json
-RUN npm ci --production=false
+RUN npm ci --include=dev
 
 COPY apps/web ./apps/web
 WORKDIR /repo/apps/web
@@ -25,7 +26,6 @@ RUN addgroup --system --gid 1001 nodejs && \
 
 COPY --from=builder /repo/apps/web/.next/standalone ./
 COPY --from=builder /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /repo/apps/web/public ./apps/web/public
 
 USER nextjs
 
