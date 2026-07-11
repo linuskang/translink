@@ -14,9 +14,8 @@ build/
 # auto-generated type declarations
 next-env.d.ts
 
-# vendored / generated assets
+# generated assets
 apps/api/data/
-apps/web/public/maplibre-gl-csp-worker.js
 
 # lockfiles
 package-lock.json

@@ -6,11 +6,3 @@ export interface Vehicle {
     lon: number;
     bearing: number | null;
 }
-
-export interface SelectedVehicle {
-    route: string;
-    trip: string;
-    vehicle: string;
-    bearing: number;
-    lngLat: [number, number];
-}

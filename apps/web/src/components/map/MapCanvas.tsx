@@ -1,287 +1,266 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import maplibregl, { setWorkerUrl } from "maplibre-gl";
+import { useEffect, useRef } from "react";
+import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { GeoJSONSource, StyleSpecification } from "maplibre-gl";
+import type { GeoJSONSource, IControl, StyleSpecification } from "maplibre-gl";
 import type { FeatureCollection, Point } from "geojson";
-import { Search, X } from "lucide-react";
 
 import { useVehicles } from "@/hooks/useVehicles";
 import { vehiclesToGeoJSON } from "@/lib/geo";
-import { InfoPanel } from "./InfoPanel";
-import type { SelectedVehicle } from "@/types";
-
-setWorkerUrl("/maplibre-gl-csp-worker.js");
+import type { Vehicle } from "@/types";
 
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? "";
-const STYLE_URL = `https://api.maptiler.com/maps/openstreetmap-dark/style.json?key=${MAPTILER_KEY}`;
 const SEQ_CENTER: [number, number] = [153.0251, -27.4698];
-const EMPTY_FC: FeatureCollection<Point> = {
+const EMPTY_GEOJSON: FeatureCollection<Point> = {
     type: "FeatureCollection",
     features: [],
 };
-const ANIMATION_MS = 30_000;
+const POSITION_TRANSITION_MS = 5_000;
 
-function lerp(a: number, b: number, t: number) {
-    return a + (b - a) * t;
+type Position = [longitude: number, latitude: number];
+
+function lerp(start: number, end: number, progress: number) {
+    return start + (end - start) * progress;
 }
 
-// Check if the inline style from NEXT_PUBLIC_MAPTILER_KEY was already set
-// So instead, we handle errors gracefully
+function createMapStyle(): StyleSpecification {
+    return {
+        version: 8,
+        sources: {
+            basemap: {
+                type: "raster",
+                tiles: [
+                    `https://api.maptiler.com/maps/openstreetmap-dark/{z}/{x}/{y}@2x.png?key=${MAPTILER_KEY}`,
+                ],
+                tileSize: 512,
+                attribution:
+                    '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+            },
+        },
+        layers: [{ id: "basemap", type: "raster", source: "basemap" }],
+    };
+}
 
-type VehiclePos = { lng: number; lat: number };
+function createControl(element: HTMLElement): IControl {
+    return {
+        onAdd() {
+            return element;
+        },
+        onRemove() {
+            element.remove();
+        },
+    };
+}
 
 export default function MapCanvas() {
     const containerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<maplibregl.Map | null>(null);
-    const [mapReady, setMapReady] = useState(false);
-    const [mapError, setMapError] = useState<string | null>(null);
-
-    const prevPos = useRef<Map<string, VehiclePos>>(new Map());
-    const currPos = useRef<Map<string, VehiclePos>>(new Map());
-    const vehiclesRef = useRef<
-        {
-            vehicle: string;
-            lat: number;
-            lon: number;
-            route: string;
-            trip: string;
-            bearing: number | null;
-        }[]
-    >([]);
-    const lastFetch = useRef(0);
-    const rafId = useRef(0);
-
-    const [selected, setSelected] = useState<SelectedVehicle | null>(null);
-    const [search, setSearch] = useState("");
-    const searchRef = useRef("");
-
-    const { data: vehicles } = useVehicles();
+    const vehiclesRef = useRef<Vehicle[]>([]);
+    const routeRef = useRef("");
+    const refreshMapRef = useRef(() => {});
+    const statusRef = useRef<HTMLDivElement | null>(null);
+    const startPositionsRef = useRef<Map<string, Position>>(new Map());
+    const targetPositionsRef = useRef<Map<string, Position>>(new Map());
+    const renderedPositionsRef = useRef<Map<string, Position>>(new Map());
+    const transitionStartedRef = useRef(0);
+    const { data: vehicles = [], dataUpdatedAt, isError } = useVehicles();
 
     useEffect(() => {
-        if (!containerRef.current) return;
-        let mounted = true;
         const container = containerRef.current;
+        if (!container || !MAPTILER_KEY) return;
 
-        fetch(STYLE_URL)
-            .then(async (r) => {
-                if (!r.ok) {
-                    const text = await r.text();
-                    throw new Error(
-                        text || `Style request failed: ${r.status}`
-                    );
-                }
-                return r.json();
-            })
-            .then((style: StyleSpecification) => {
-                if (!mounted || !container.isConnected) return;
-                if (!style.projection) style.projection = { type: "mercator" };
+        const map = new maplibregl.Map({
+            container,
+            style: createMapStyle(),
+            center: SEQ_CENTER,
+            zoom: 11,
+            attributionControl: { compact: true },
+        });
+        const resizeObserver = new ResizeObserver(() => map.resize());
+        let animationFrame = 0;
+        let lastRender = 0;
 
-                const map = new maplibregl.Map({
-                    container,
-                    style,
-                    center: SEQ_CENTER,
-                    zoom: 11,
-                    attributionControl: { compact: true },
-                });
+        const status = document.createElement("div");
+        status.className = "maplibregl-ctrl map-status-control";
+        status.textContent = "Loading vehicles...";
+        statusRef.current = status;
 
-                mapRef.current = map;
+        const search = document.createElement("input");
+        search.className = "maplibregl-ctrl map-search-control";
+        search.type = "search";
+        search.inputMode = "numeric";
+        search.placeholder = "Bus number";
+        search.ariaLabel = "Search bus number";
+        search.addEventListener("input", () => {
+            routeRef.current = search.value.trim().toLowerCase();
+            refreshMapRef.current();
+        });
 
-                map.on("load", () => {
-                    if (!mounted) return;
+        map.addControl(createControl(status), "top-left");
+        map.addControl(createControl(search), "top-right");
+        map.addControl(
+            new maplibregl.NavigationControl({ showCompass: false }),
+            "bottom-right"
+        );
+        map.addControl(
+            new maplibregl.GeolocateControl({
+                positionOptions: { enableHighAccuracy: true },
+                trackUserLocation: true,
+            }),
+            "bottom-right"
+        );
+        map.addControl(new maplibregl.ScaleControl(), "bottom-left");
 
-                    map.addSource("vehicles", {
-                        type: "geojson",
-                        data: EMPTY_FC,
-                    });
-
-                    map.addLayer({
-                        id: "vehicles",
-                        type: "circle",
-                        source: "vehicles",
-                        paint: {
-                            "circle-radius": 6,
-                            "circle-color": "#f97316",
-                            "circle-stroke-width": 1.5,
-                            "circle-stroke-color": "#ffffff",
-                            "circle-opacity": 0.9,
-                        },
-                    });
-
-                    map.addLayer({
-                        id: "vehicle-labels",
-                        type: "symbol",
-                        source: "vehicles",
-                        layout: {
-                            "text-field": ["get", "route"],
-                            "text-size": 10,
-                            "text-offset": [0, 1.4],
-                            "text-anchor": "top",
-                        },
-                        paint: {
-                            "text-color": "#ffffff",
-                            "text-halo-color": "#000000",
-                            "text-halo-width": 1,
-                        },
-                    });
-
-                    map.on("click", "vehicles", (e) => {
-                        const f = e.features?.[0];
-                        if (!f) return;
-                        const p = f.properties as Record<string, unknown>;
-                        setSelected({
-                            route: String(p.route ?? ""),
-                            trip: String(p.trip ?? ""),
-                            vehicle: String(p.vehicle ?? ""),
-                            bearing: Number(p.bearing ?? 0),
-                            lngLat: [e.lngLat.lng, e.lngLat.lat],
-                        });
-                    });
-
-                    map.on("mouseenter", "vehicles", () => {
-                        map.getCanvas().style.cursor = "pointer";
-                    });
-                    map.on("mouseleave", "vehicles", () => {
-                        map.getCanvas().style.cursor = "";
-                    });
-
-                    setMapReady(true);
-                });
-            })
-            .catch((e) => {
-                console.error("Map style fetch failed:", e);
-                setMapError(
-                    MAPTILER_KEY
-                        ? "Failed to load map tiles. Check your MapTiler key."
-                        : "NEXT_PUBLIC_MAPTILER_KEY is not set. Add it to .env.local."
-                );
+        resizeObserver.observe(container);
+        map.on("load", () => {
+            map.resize();
+            map.addSource("vehicles", { type: "geojson", data: EMPTY_GEOJSON });
+            map.addLayer({
+                id: "vehicles",
+                type: "circle",
+                source: "vehicles",
+                paint: {
+                    "circle-radius": 5,
+                    "circle-color": "#bc1fe4",
+                    "circle-stroke-width": 1.5,
+                    "circle-stroke-color": "#fff",
+                    "circle-opacity": 0.9,
+                },
+            });
+            map.addLayer({
+                id: "vehicle-labels",
+                type: "symbol",
+                source: "vehicles",
+                layout: {
+                    "text-field": ["get", "route"],
+                    "text-size": 10,
+                    "text-offset": [0, 1.25],
+                    "text-anchor": "top",
+                },
+                paint: {
+                    "text-color": "#fff",
+                    "text-halo-color": "#111",
+                    "text-halo-width": 1,
+                },
             });
 
-        return () => {
-            mounted = false;
-            cancelAnimationFrame(rafId.current);
-            if (mapRef.current) {
-                mapRef.current.remove();
-                mapRef.current = null;
+            function renderVehicles(now: number) {
+                const progress = Math.min(
+                    1,
+                    (now - transitionStartedRef.current) /
+                        POSITION_TRANSITION_MS
+                );
+                const rendered = new Map<string, Position>();
+                const animated = vehiclesRef.current.map((vehicle) => {
+                    const target = targetPositionsRef.current.get(
+                        vehicle.vehicle
+                    ) ?? [vehicle.lon, vehicle.lat];
+                    const start =
+                        startPositionsRef.current.get(vehicle.vehicle) ??
+                        target;
+                    const position: Position = [
+                        lerp(start[0], target[0], progress),
+                        lerp(start[1], target[1], progress),
+                    ];
+                    rendered.set(vehicle.vehicle, position);
+                    return {
+                        ...vehicle,
+                        lon: position[0],
+                        lat: position[1],
+                    };
+                });
+                renderedPositionsRef.current = rendered;
+
+                const query = routeRef.current;
+                const filtered = query
+                    ? animated.filter((vehicle) =>
+                          vehicle.route.toLowerCase().includes(query)
+                      )
+                    : animated;
+
+                (map.getSource("vehicles") as GeoJSONSource).setData(
+                    vehiclesToGeoJSON(filtered)
+                );
             }
-            setMapReady(false);
+
+            function animate(now: number) {
+                animationFrame = requestAnimationFrame(animate);
+                if (now - lastRender < 50) return;
+                lastRender = now;
+                renderVehicles(now);
+            }
+
+            refreshMapRef.current = () => {
+                renderVehicles(performance.now());
+            };
+            refreshMapRef.current();
+            animationFrame = requestAnimationFrame(animate);
+        });
+        map.on("error", (event) =>
+            console.error("MapLibre error:", event.error)
+        );
+
+        return () => {
+            resizeObserver.disconnect();
+            cancelAnimationFrame(animationFrame);
+            refreshMapRef.current = () => {};
+            statusRef.current = null;
+            map.remove();
         };
     }, []);
 
     useEffect(() => {
-        searchRef.current = search;
-    }, [search]);
-
-    useEffect(() => {
-        if (!vehicles) return;
-        vehiclesRef.current = vehicles;
-
-        prevPos.current = new Map(currPos.current);
-        currPos.current.clear();
-
-        for (const v of vehicles) {
-            if (!v.lat || !v.lon) continue;
-            currPos.current.set(v.vehicle, { lng: v.lon, lat: v.lat });
+        const starts = new Map(renderedPositionsRef.current);
+        const targets = new Map<string, Position>();
+        for (const vehicle of vehicles) {
+            const target: Position = [vehicle.lon, vehicle.lat];
+            targets.set(vehicle.vehicle, target);
+            if (!starts.has(vehicle.vehicle)) {
+                starts.set(vehicle.vehicle, target);
+            }
         }
 
-        lastFetch.current = Date.now();
-    }, [vehicles]);
+        startPositionsRef.current = starts;
+        targetPositionsRef.current = targets;
+        transitionStartedRef.current = performance.now();
+        vehiclesRef.current = vehicles;
+        refreshMapRef.current();
 
-    useEffect(() => {
-        if (!mapReady) return;
-
-        function tick() {
-            rafId.current = requestAnimationFrame(tick);
-
-            const map = mapRef.current;
-            if (!map || !vehiclesRef.current.length) return;
-
-            const t = Math.min(
-                1,
-                (Date.now() - lastFetch.current) / ANIMATION_MS
-            );
-            const interpolated = new Map<string, [number, number]>();
-
-            currPos.current.forEach((curr, id) => {
-                const prev = prevPos.current.get(id);
-                if (prev) {
-                    interpolated.set(id, [
-                        lerp(prev.lng, curr.lng, t),
-                        lerp(prev.lat, curr.lat, t),
-                    ]);
-                } else {
-                    interpolated.set(id, [curr.lng, curr.lat]);
-                }
-            });
-
-            const fc = vehiclesToGeoJSON(vehiclesRef.current, interpolated);
-
-            const q = searchRef.current.trim().toLowerCase();
-            if (q) {
-                fc.features = fc.features.filter(
-                    (f) =>
-                        f.properties?.vehicle?.toLowerCase().includes(q) ||
-                        f.properties?.route?.toLowerCase().includes(q)
-                );
+        function updateStatus() {
+            if (!statusRef.current) return;
+            if (isError) {
+                statusRef.current.textContent = "Vehicles unavailable";
+                return;
             }
 
-            (map.getSource("vehicles") as GeoJSONSource | undefined)?.setData(
-                fc
-            );
+            const remaining = dataUpdatedAt
+                ? Math.max(
+                      0,
+                      Math.ceil((30_000 - (Date.now() - dataUpdatedAt)) / 1000)
+                  )
+                : 0;
+            statusRef.current.textContent = `${vehicles.length} vehicles · refresh in ${remaining}s`;
         }
 
-        rafId.current = requestAnimationFrame(tick);
-        return () => cancelAnimationFrame(rafId.current);
-    }, [mapReady]);
+        updateStatus();
+        const interval = window.setInterval(updateStatus, 1000);
+        return () => window.clearInterval(interval);
+    }, [dataUpdatedAt, isError, vehicles]);
 
-    if (mapError) {
+    if (!MAPTILER_KEY) {
         return (
-            <div className="flex h-screen w-screen items-center justify-center bg-black px-8 text-center">
-                <div className="max-w-md space-y-2">
-                    <p className="text-lg font-medium text-white">
-                        Map failed to load
-                    </p>
-                    <p className="text-sm text-white/50">{mapError}</p>
-                </div>
+            <div className="grid h-screen place-items-center bg-black px-6 text-center">
+                <p className="text-sm text-white/60">
+                    Add NEXT_PUBLIC_MAPTILER_KEY to .env.local and restart the
+                    dev server.
+                </p>
             </div>
         );
     }
 
     return (
-        <div className="relative h-screen w-screen overflow-hidden bg-black">
-            <div ref={containerRef} className="absolute inset-0" />
-
-            {vehicles && (
-                <div className="pointer-events-none absolute top-4 left-4 z-20">
-                    <span className="rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white/70 backdrop-blur-md">
-                        {vehicles.length} vehicles
-                    </span>
-                </div>
-            )}
-
-            <div className="absolute top-4 right-4 z-20 w-56">
-                <div className="relative">
-                    <Search className="absolute left-3 top-2.5 size-4 text-white/30" />
-                    <input
-                        type="text"
-                        placeholder="Search route or vehicle..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full rounded-lg border border-white/10 bg-black/60 py-2 pl-9 pr-8 text-sm text-white placeholder-white/30 backdrop-blur-md outline-none focus:border-white/25"
-                    />
-                    {search && (
-                        <button
-                            onClick={() => setSearch("")}
-                            className="absolute right-2.5 top-2.5 text-white/30 hover:text-white/60"
-                        >
-                            <X className="size-4" />
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            <InfoPanel vehicle={selected} onClose={() => setSelected(null)} />
-        </div>
+        <main className="map-shell bg-black">
+            <div id="map" ref={containerRef} className="map-container" />
+        </main>
     );
 }

@@ -78,8 +78,8 @@ npm --workspace @translink/api run dev
    a JSON array of vehicle positions.
 3. The web app's `/api/vehicles` route (Next.js server route) proxies to the
    API. The client polls this route every 30 seconds via TanStack Query.
-4. The map renders vehicle positions as GeoJSON points, with smooth
-   interpolation between fetches via `requestAnimationFrame`.
+4. The map renders vehicle positions as GeoJSON points and supports filtering
+   by route number.
 
 ## Scripts
 
@@ -129,12 +129,11 @@ npm --workspace @translink/api run lint     # tsc --noEmit
 │       │   │   ├── layout.tsx
 │       │   │   ├── page.tsx         # Map page
 │       │   │   └── providers.tsx    # TanStack Query provider
-│       │   ├── components/map/      # MapCanvas + InfoPanel
+│       │   ├── components/map/      # MapCanvas
 │       │   ├── components/ui/       # shadcn/ui components
 │       │   ├── hooks/               # useVehicles, useIsMobile
 │       │   ├── lib/                 # geo helpers, cn()
 │       │   └── types/               # Shared TypeScript types
-│       ├── public/
 │       ├── Dockerfile
 │       ├── next.config.ts
 │       └── package.json

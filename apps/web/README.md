@@ -48,9 +48,8 @@ to the API container over the internal network.
   `GET /api/vehicles` to the upstream `VEHICLE_API_URL`.
 - `src/hooks/useVehicles.ts` — TanStack Query hook that polls
   `/api/vehicles` every 30 seconds.
-- `src/components/map/MapCanvas.tsx` — MapLibre GL map with vehicle
-  markers, smooth interpolation between fetches via `requestAnimationFrame`,
-  search filtering, and click-to-select info panel.
+- `src/components/map/MapCanvas.tsx` — MapLibre GL map with live vehicle
+  markers and route-number filtering.
 - `src/lib/geo.ts` — converts vehicle entities to GeoJSON FeatureCollections.
 
 ## Structure
@@ -65,13 +64,11 @@ apps/web
 │   │   ├── page.tsx                 # Map page
 │   │   └── providers.tsx            # TanStack Query provider
 │   ├── components/
-│   │   ├── map/                     # MapCanvas, InfoPanel
+│   │   ├── map/                     # MapCanvas
 │   │   └── ui/                     # shadcn/ui components
 │   ├── hooks/                       # useVehicles, useIsMobile
 │   ├── lib/                         # geo, utils
 │   └── types/                       # Shared types
-├── public/
-│   └── maplibre-gl-csp-worker.js   # MapLibre CSP worker
 ├── Dockerfile                       # Multi-stage build (repo root context)
 ├── next.config.ts                   # standalone output
 ├── tsconfig.json

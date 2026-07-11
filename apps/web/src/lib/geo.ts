@@ -2,17 +2,13 @@ import type { Feature, FeatureCollection, Point } from "geojson";
 import type { Vehicle } from "@/types";
 
 export function vehiclesToGeoJSON(
-    vehicles: Vehicle[],
-    interpolated?: Map<string, [number, number]>
+    vehicles: Vehicle[]
 ): FeatureCollection<Point> {
     const features: Feature<Point>[] = vehicles
         .filter((v) => v.lat && v.lon)
         .map((v) => ({
             type: "Feature" as const,
-            geometry: {
-                type: "Point" as const,
-                coordinates: interpolated?.get(v.vehicle) ?? [v.lon, v.lat],
-            },
+            geometry: { type: "Point" as const, coordinates: [v.lon, v.lat] },
             properties: {
                 id: v.vehicle,
                 route: v.route,
