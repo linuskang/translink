@@ -1,98 +1,67 @@
-# API App
+# `@translink/api`
 
-TypeScript + Hono service for SEQ GTFS realtime vehicle positions.
+High-throughput TypeScript + Hono transit engine combining Translink's **SEQ GTFS Static** schedule (`SEQ_GTFS.zip`) with all three **SEQ GTFS-Realtime** protobuf feeds (`VehiclePositions`, `TripUpdates`, `Alerts`).
 
 ## Stack
 
-- Hono 4 (web framework)
-- `@hono/node-server` (Node.js adapter)
-- `gtfs-realtime-bindings` (protobuf decoding)
-- Node 22 (runtime)
-- `tsx` (dev), `tsc` (build)
+- **Hono 4** + `@hono/node-server`
+- **`gtfs-realtime-bindings`** (GTFS-Realtime protobuf decoding)
+- **Node 22 built-ins**:
+    - `node:sqlite` (`DatabaseSync`) for persistent indexed GTFS static storage (`data/seq_gtfs.sqlite`)
+    - `node:zlib` (`createInflateRaw`, `brotliCompressSync`, `gzipSync`) for zero-dependency streaming ZIP extraction and HTTP payload pre-compression
 
 ## Commands
 
 Run from the repo root:
 
 ```bash
-npm --workspace @translink/api run dev      # tsx watch src/index.ts
+npm --workspace @translink/api run dev      # tsx watch --disable-warning=ExperimentalWarning src/index.ts
 npm --workspace @translink/api run build    # tsc -> dist/
-npm --workspace @translink/api run start    # node dist/index.js
+npm --workspace @translink/api run start    # node --disable-warning=ExperimentalWarning dist/index.js
 npm --workspace @translink/api run lint     # tsc --noEmit
-```
-
-The app runs on `http://localhost:8000` by default. Override with the
-`PORT` environment variable.
-
-## Endpoints
-
-### `GET /`
-
-Service metadata (name, version, status, endpoint list, data source).
-
-### `GET /v1/seq/vehicle_positions`
-
-Returns cached vehicle positions parsed from the Translink GTFS-realtime
-feed as JSON:
-
-```json
-{
-    "vehicles": [
-        {
-            "vehicle": "DE58B3C0...",
-            "route": "282",
-            "trip": "37632990-TDEV 26_27-43012",
-            "lat": -27.585,
-            "lon": 153.281,
-            "bearing": 0
-        }
-    ]
-}
 ```
 
 ## Architecture
 
-- `src/index.ts` — Hono app with CORS middleware, route handlers for
-  `GET /` and `GET /v1/seq/vehicle_positions`, and `@hono/node-server`
-  bootstrap. Starts the background updater on import.
-- `src/updater.ts` — Background fetch loop. Polls
-  `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions`
-  every 30 seconds and writes the raw protobuf to
-  `data/SEQ_VehiclePositions.pb`.
-- `src/positions.ts` — Reads and decodes the cached protobuf using
-  `gtfs-realtime-bindings` (loaded via `createRequire` for CJS interop).
-  Extracts vehicle ID, route, trip, lat, lon, and bearing.
+- [`src/index.ts`](./src/index.ts) — Hono HTTP server, CORS, `ETag` / Brotli / Gzip response negotiation, and REST endpoints under `/v1/`.
+- [`src/staticGtfs.ts`](./src/staticGtfs.ts) — Conditional `ETag` / `If-Modified-Since` downloader for `https://gtfsrt.api.translink.com.au/GTFS/SEQ_GTFS.zip`. Streams `routes.txt`, `stops.txt`, `trips.txt`, `shapes.txt`, `stop_times.txt`, and `feed_info.txt` into `data/seq_gtfs.sqlite` (packed `Float32Array` shape blobs, canonical direction shapes/headsigns, QR 4-letter reverse rail route pairing such as `BNFG` <-> `FGBN`, and polyline tangent bearing projection).
+- [`src/zip.ts`](./src/zip.ts) — Zero-dependency ZIP Central Directory parser, `InflateRaw` entry streamer, and RFC-4180 CSV line parser.
+- [`src/realtime.ts`](./src/realtime.ts) — Polls `VehiclePositions`, `TripUpdates`, and `Alerts` every 30s with upstream `ETag` support. Enriches every vehicle with static route colors/names, direction IDs, trip headsigns, stop names/codes/platforms, sanitized live arrival delays, and computed bearings + speeds (from consecutive GPS motion and `shapes.txt` polyline tangents). Maintains a 16-snapshot ring buffer for compact delta synchronization.
+- [`src/compression.ts`](./src/compression.ts) — Pre-computes Brotli (`br`) and Gzip buffers + weak/strong `ETag` headers once per 30s tick so client polls require zero per-request serialization or compression work.
+- [`src/updater.ts`](./src/updater.ts) — Coordinates immediate startup hydration from cached SQLite + protobuf files, 30s realtime polling, and 6-hour static GTFS freshness checks.
+- [`src/types.ts`](./src/types.ts) — TypeScript definitions for static GTFS, enriched realtime entities, and the compact tuple / delta sync protocol.
 
-## Structure
+## Endpoints
 
-```text
-apps/api
-├── src/
-│   ├── index.ts           # Hono app + server bootstrap
-│   ├── updater.ts         # Background Translink fetch loop
-│   └── positions.ts       # GTFS-realtime protobuf parsing
-├── data/                  # Runtime cache (gitignored, Docker volume)
-├── Dockerfile             # Multi-stage Node build
-├── tsconfig.json          # NodeNext, strict
-└── package.json
-```
+### `GET /v1/health`
 
-## Runtime Data
+Feed timestamps, age in seconds, active vehicle counts by transit mode (`bus`, `rail`, `ferry`, `tram`), static GTFS validity window, and compressed snapshot byte metrics.
 
-The background updater fetches from Translink every 30 seconds and writes
-`data/SEQ_VehiclePositions.pb`. The `data/` directory is gitignored and
-mounted as a Docker named volume (`translink-api-data`) in
-`docker-compose.yml`.
+### `GET /v1/seq/vehicles/sync`
 
-## Docker
+Low-bandwidth synchronization endpoint keeping 100% of active vehicles loaded on clients:
 
-Build context is `apps/api`. The image uses a two-stage build:
+- Full snapshot (`mode: "full"`): append-only `routes` and `headsigns` dictionaries + compact 12-element tuples (~20–22 KB Brotli for ~670 vehicles).
+- Incremental delta (`?since=<seq>&epoch=<epoch>`, `mode: "delta"`): dictionary slices + `added`, `updated`, `moved`, and `removed` vehicle deltas (~8–9.5 KB Brotli per 30s tick), or `304 Not Modified` (`0 B`) when unchanged.
 
-1. **Builder**: installs deps, runs `tsc` to emit `dist/`.
-2. **Runner**: installs production-only deps, copies `dist/`, creates
-   a non-root user, exposes port 8000, and includes a health check
-   (`GET /` every 30s).
+### `GET /v1/seq/vehicle_positions`
 
-```bash
-node dist/index.js
-```
+Enriched JSON array of active vehicles. Supports optional filters: `?route=130`, `?mode=bus|rail|ferry|tram`, `?direction=0|1`, and `?bbox=minLon,minLat,maxLon,maxLat`.
+
+### `GET /v1/seq/vehicles/:id`
+
+Full live detail for a single vehicle (by compact `id` or raw GTFS vehicle ID), including its trip GeoJSON `LineString` shape, ordered stop calls with scheduled vs live predicted arrival times, both route directions, and active service alerts.
+
+### `GET /v1/seq/routes` & `GET /v1/seq/routes/:routeKey`
+
+- `GET /v1/seq/routes`: Searchable route directory (`?q=`, `?mode=`, `?activeOnly=1`, `?limit=`).
+- `GET /v1/seq/routes/:routeKey`: Detailed route view returning official Translink colors, timetable URL, paired QR rail reverse code (if applicable), active alerts, and **each direction (`directionId` `0` and `1`)** with headsigns, canonical GeoJSON shape, ordered stops, and active vehicles.
+
+### `GET /v1/seq/stops` & `GET /v1/seq/stops/:stopId`
+
+- `GET /v1/seq/stops`: Search stops by text (`?q=Cultural Centre`) or geographic radius (`?lat=-27.47&lon=153.02&radius=600`).
+- `GET /v1/seq/stops/:stopId`: Station/stop metadata, child platforms, active stop alerts, and live predicted departures for the next 90 minutes.
+
+### `GET /v1/seq/alerts`
+
+Active GTFS-Realtime service alerts filtered by `?route=`, `?stopId=`, `?tripId=`, or `?mode=`.

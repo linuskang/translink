@@ -1,25 +1,22 @@
-# Translink
+# Translink SEQ Live
 
-Real-time SEQ (South East Queensland) transit map and API, organized as a
-Turborepo monorepo.
+Real-time South East Queensland (SEQ) transit map, Progressive Web App (PWA), and GTFS Static + Realtime API organized as a Turborepo monorepo.
 
 ## Apps
 
-| App | Path       | Stack                                             | Port |
-| --- | ---------- | ------------------------------------------------- | ---- |
-| Web | `apps/web` | Next.js 16, React 19, MapLibre GL, TanStack Query | 3000 |
-| API | `apps/api` | TypeScript, Hono, Node 22, `@hono/node-server`    | 8000 |
+| App | Path       | Stack                                                          | Port |
+| --- | ---------- | -------------------------------------------------------------- | ---- |
+| Web | `apps/web` | Next.js 16, React 19, MapLibre GL, TanStack Query, PWA         | 3000 |
+| API | `apps/api` | TypeScript, Hono 4, Node 22 (`node:sqlite`, `node:zlib`), GTFS | 8000 |
 
-The **web** app is a Next.js frontend that renders a live transit map with
-real-time vehicle positions. The **api** app is a Hono server that polls the
-Translink GTFS-realtime feed every 30 seconds, caches the protobuf locally,
-and serves parsed vehicle positions as JSON.
+- **`@translink/api`**: Indexes Translink's static GTFS schedule (`SEQ_GTFS.zip` — routes, official colors, headsigns, stop sequences, and `shapes.txt` polylines) into a local SQLite index (`node:sqlite`) and merges all three 30-second GTFS-Realtime feeds (`VehiclePositions`, `TripUpdates`, `Alerts`), computing live vehicle bearings and speeds while serving pre-compressed Brotli/Gzip incremental delta syncs.
+- **`@translink/web`**: Installable mobile/desktop PWA rendering 100% of active buses, trains, ferries, and trams with GPU-rotated directional markers, route polylines, Inbound/Outbound direction switching, live stop arrival predictions, and low-data delta polling (~9 KB per 30s poll).
 
 ## Prerequisites
 
-- **Node.js** 22+
+- **Node.js** 22.5+ (uses built-in `node:sqlite`)
 - **npm** 10+
-- **Docker** (for container builds / production)
+- **Docker** (optional, for container builds / production)
 
 ## Quick Start
 
@@ -27,7 +24,7 @@ and serves parsed vehicle positions as JSON.
 # Install dependencies
 npm install
 
-# Copy the example env file and fill in your keys
+# Optional: copy .example.env to .env.local (works out of the box without keys)
 cp .example.env .env.local
 
 # Start both apps in dev mode
@@ -43,43 +40,39 @@ Default URLs:
 
 Create `.env.local` in the repo root (see `.example.env`):
 
-| Variable                   | Scope             | Required | Description                                                                                                               |
-| -------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_MAPTILER_KEY` | Web (public)      | Yes      | MapTiler API key for map tiles. Exposed to the browser.                                                                   |
-| `VEHICLE_API_URL`          | Web (server only) | Yes      | Upstream vehicle positions API. Defaults to `http://localhost:8000/v1/seq/vehicle_positions`. Not exposed to the browser. |
-| `PORT`                     | API               | No       | API server port. Defaults to `8000`.                                                                                      |
+| Variable                   | Scope             | Required | Description                                                                                                     |
+| -------------------------- | ----------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_MAPTILER_KEY` | Web (public)      | No       | MapTiler API key for vector `dataviz-dark` tiles. Falls back automatically to CARTO Dark Matter `@2x` if unset. |
+| `TRANSIT_API_URL`          | Web (server only) | No       | Upstream API origin (`http://localhost:8000` by default, or derived automatically from `VEHICLE_API_URL`).      |
+| `VEHICLE_API_URL`          | Web (server only) | No       | Legacy-compatible vehicle URL (`http://localhost:8000/v1/seq/vehicle_positions` by default).                    |
+| `PORT`                     | API               | No       | API server port (`8000` by default).                                                                            |
 
-In Docker Compose, `VEHICLE_API_URL` is set to `http://api:8000/v1/seq/vehicle_positions`
-so the web container proxies to the API container over the internal network.
+## Mobile Data Optimization
 
-## Development
+All active SEQ vehicles (~650–1,000+ at peak) remain loaded simultaneously on the map without dropping or viewport-culling vehicles:
 
-Run both apps concurrently through Turbo:
+1. **Dictionary + Quantized Tuple Encoding**: Route metadata (`[shortName, longName, modeCode, color, textColor]`) and trip headsigns are interned into append-only dictionaries instead of repeating strings per vehicle. Coordinates use `1e5`-scaled integer tuples (~1.1 m precision).
+2. **30-Second Incremental Delta Sync (`GET /v1/seq/vehicles/sync?since=<seq>&epoch=<epoch>`)**: Subsequent polls transmit only coordinate deltas (`[id, dLatE5, dLonE5, bearing, speedKmh, statusCode, delaySec, ageSec]`) plus newly added or removed vehicles.
+3. **Pre-Compressed Brotli (`br`) & `ETag` (`304 Not Modified`)**:
+    - Initial full snapshot (~670 vehicles): **~20–22 KB** over the wire (Brotli) vs ~180+ KB uncompressed verbose JSON.
+    - 30-second delta update: **~8–9.5 KB** over the wire (Brotli).
+    - Unchanged feed tick: **`304 Not Modified` (`0 B` body)**.
+4. **Visibility-Aware Polling & Tile Caching**: Background tabs / locked phone screens pause polling automatically (`document.visibilityState`) and catch up immediately on wake; the PWA service worker (`public/sw.js`) caches app shell assets and basemap tiles.
 
-```bash
-npm run dev          # turbo run dev (both apps)
-```
+## API Reference
 
-Run a single app:
-
-```bash
-npm --workspace @translink/web run dev
-npm --workspace @translink/api run dev
-```
-
-### How It Works
-
-1. The API backgrounds a fetch loop that polls
-   `https://gtfsrt.api.translink.com.au/api/realtime/SEQ/VehiclePositions`
-   every 30 seconds and writes the raw protobuf to
-   `apps/api/data/SEQ_VehiclePositions.pb`.
-2. On each request to `GET /v1/seq/vehicle_positions`, the API reads the
-   cached protobuf, decodes it with `gtfs-realtime-bindings`, and returns
-   a JSON array of vehicle positions.
-3. The web app's `/api/vehicles` route (Next.js server route) proxies to the
-   API. The client polls this route every 30 seconds via TanStack Query.
-4. The map renders vehicle positions as GeoJSON points and supports filtering
-   by route number.
+| Endpoint                        | Description                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /`                         | Service metadata, endpoint directory, and feed health summary.                                         |
+| `GET /v1/health`                | Realtime feed ages, active counts by mode, static GTFS feed validity dates, and wire-byte telemetry.   |
+| `GET /v1/seq/vehicles/sync`     | Compact full snapshot or incremental delta (`?since=<seq>&epoch=<epoch>`), `ETag` + Brotli/Gzip.       |
+| `GET /v1/seq/vehicle_positions` | Enriched JSON vehicle list (`?route=`, `?mode=`, `?direction=`, `?bbox=`).                             |
+| `GET /v1/seq/vehicles/:id`      | Single vehicle telemetry, exact trip GeoJSON `LineString` shape, stop ETA sequence, and route alerts.  |
+| `GET /v1/seq/routes`            | Searchable GTFS route catalog (`?q=`, `?mode=`, `?activeOnly=1`) with active counts per direction.     |
+| `GET /v1/seq/routes/:routeKey`  | Full route details with **both directions** (`directionId` `0` & `1`, shapes, stops, active vehicles). |
+| `GET /v1/seq/stops`             | Stop search by name, stop code, ID, or proximity (`?q=`, `?lat=&lon=&radius=`).                        |
+| `GET /v1/seq/stops/:stopId`     | Stop & child station platforms with live predicted departures for the next 90 minutes.                 |
+| `GET /v1/seq/alerts`            | Active GTFS-Realtime service alerts filtered by `?route=`, `?stopId=`, `?tripId=`, or `?mode=`.        |
 
 ## Scripts
 
@@ -93,163 +86,15 @@ Run from the repo root:
 | `npm run format`       | Format all files with Prettier      |
 | `npm run format:check` | Check formatting without writing    |
 
-Per-app commands:
-
-```bash
-npm --workspace @translink/web run dev      # next dev
-npm --workspace @translink/web run build    # next build
-npm --workspace @translink/web run lint     # eslint
-
-npm --workspace @translink/api run dev      # tsx watch src/index.ts
-npm --workspace @translink/api run build     # tsc -> dist/
-npm --workspace @translink/api run start    # node dist/index.js
-npm --workspace @translink/api run lint     # tsc --noEmit
-```
-
-## Project Structure
-
-```text
-.
-├── .github/workflows/
-│   └── build.yml                    # CI: builds and pushes both GHCR images
-├── apps/
-│   ├── api/
-│   │   ├── src/
-│   │   │   ├── index.ts             # Hono app + server bootstrap
-│   │   │   ├── updater.ts           # Background Translink fetch loop
-│   │   │   └── positions.ts         # GTFS-realtime protobuf parsing
-│   │   ├── data/                    # Runtime cache (gitignored, Docker volume)
-│   │   ├── Dockerfile
-│   │   ├── tsconfig.json
-│   │   └── package.json
-│   └── web/
-│       ├── src/
-│       │   ├── app/                 # Next.js App Router
-│       │   │   ├── api/vehicles/    # Server route proxying to the API
-│       │   │   ├── layout.tsx
-│       │   │   ├── page.tsx         # Map page
-│       │   │   └── providers.tsx    # TanStack Query provider
-│       │   ├── components/map/      # MapCanvas
-│       │   ├── components/ui/       # shadcn/ui components
-│       │   ├── hooks/               # useVehicles, useIsMobile
-│       │   ├── lib/                 # geo helpers, cn()
-│       │   └── types/               # Shared TypeScript types
-│       ├── Dockerfile
-│       ├── next.config.ts
-│       └── package.json
-├── .dockerignore
-├── .gitignore
-├── .prettierrc
-├── .prettierignore
-├── .example.env
-├── docker-compose.yml
-├── package.json
-├── package-lock.json
-└── turbo.json
-```
-
-## API Reference
-
-### `GET /`
-
-Service metadata.
-
-**Response:**
-
-```json
-{
-  "service": "Transit Live API",
-  "description": "Real-time Brisbane Transit (SEQ) vehicle position tracking",
-  "version": "1.0.0",
-  "status": "operational",
-  "endpoints": { ... },
-  "update_interval": "30 seconds",
-  "data_source": "https://gtfsrt.api.translink.com.au/..."
-}
-```
-
-### `GET /v1/seq/vehicle_positions`
-
-Cached vehicle positions from Translink GTFS realtime.
-
-**Response:**
-
-```json
-{
-    "vehicles": [
-        {
-            "vehicle": "DE58B3C0...",
-            "route": "282",
-            "trip": "37632990-TDEV 26_27-43012",
-            "lat": -27.585,
-            "lon": 153.281,
-            "bearing": 0
-        }
-    ]
-}
-```
-
 ## Docker
-
-### Validate the production compose file
 
 ```bash
 docker compose config
-```
-
-### Build and run both services
-
-```bash
 docker compose up --build
 ```
 
-### Images
-
-| Service | Image                        | Build context   | Dockerfile            |
-| ------- | ---------------------------- | --------------- | --------------------- |
-| Web     | `ghcr.io/<owner>/<repo>-app` | `.` (repo root) | `apps/web/Dockerfile` |
-| API     | `ghcr.io/<owner>/<repo>-api` | `apps/api`      | `apps/api/Dockerfile` |
-
-Both images use `node:22-alpine` multi-stage builds:
-
-- **Web**: builder installs all workspace deps with `npm ci`, runs
-  `next build` (standalone output), then copies the standalone server +
-  static assets into a minimal runner image.
-- **API**: builder installs deps and runs `tsc`, then the runner installs
-  production-only deps and copies `dist/`. The `data/` directory is a
-  named volume (`translink-api-data`) for the protobuf cache.
-
-### Health Checks
-
-The API Dockerfile includes a health check (`GET /` every 30s). The web
-service depends on the API being healthy before starting.
-
-## CI/CD
-
-A single GitHub Actions workflow (`.github/workflows/build.yml`) builds both
-GHCR images in parallel via a matrix:
-
-| Matrix target | Image                        | Build args |
-| ------------- | ---------------------------- | ---------- |
-| `app`         | `ghcr.io/<owner>/<repo>-app` | _(none)_   |
-| `api`         | `ghcr.io/<owner>/<repo>-api` | _(none)_   |
-
-**Triggers:** push or PR to `main`/`master`, plus `workflow_dispatch`.
-
-**Behavior:**
-
-- Pull requests build images without pushing (validates the build).
-- Pushes to the default branch build and push to GHCR with tags:
-    - `latest` (default branch only)
-    - `<branch>` (branch name)
-    - `<branch>-<sha>` (short commit SHA)
-    - Semantic version tags on git tags (`v1.0.0`, `v1.0`, `v1`)
-
-**Caching:** each target uses a scoped GitHub Actions cache (`type=gha`)
-to avoid rebuilding layers across runs.
-
-The MapTiler key is supplied to the web container at runtime through
-`NEXT_PUBLIC_MAPTILER_KEY`; the GHCR image does not contain it.
+- **API (`apps/api/Dockerfile`)**: Multi-stage `node:22-alpine` build with `translink-api-data` volume storing `seq_gtfs.sqlite`, `SEQ_GTFS.zip`, and cached `.pb` realtime feeds, plus `/v1/health` container healthcheck.
+- **Web (`apps/web/Dockerfile`)**: Multi-stage Next.js standalone runner including `public/` PWA icons and service worker (`sw.js`).
 
 ## License
 

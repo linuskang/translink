@@ -1,17 +1,6 @@
-import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { proxyToUpstream } from "@/lib/upstream";
 
-const UPSTREAM =
-    process.env.VEHICLE_API_URL ??
-    "http://localhost:8000/v1/seq/vehicle_positions";
-
-export async function GET() {
-    const res = await fetch(UPSTREAM, { cache: "no-store" });
-    if (!res.ok) {
-        return NextResponse.json(
-            { error: "upstream error" },
-            { status: res.status }
-        );
-    }
-    const data = await res.json();
-    return NextResponse.json(data);
+export async function GET(req: NextRequest) {
+    return proxyToUpstream(req, "/v1/seq/vehicle_positions", "no-cache");
 }

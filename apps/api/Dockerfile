@@ -24,7 +24,7 @@ RUN mkdir -p data && chmod 755 data \
 USER apiuser
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "fetch('http://localhost:8000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD node -e "fetch('http://localhost:8000/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "dist/index.js"]

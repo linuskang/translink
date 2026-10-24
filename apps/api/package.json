@@ -1,12 +1,12 @@
 {
     "name": "@translink/api",
-    "version": "0.0.1",
+    "version": "1.1.0",
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "tsx watch src/index.ts",
+        "dev": "tsx watch --disable-warning=ExperimentalWarning src/index.ts",
         "build": "tsc",
-        "start": "node dist/index.js",
+        "start": "node --disable-warning=ExperimentalWarning dist/index.js",
         "lint": "tsc --noEmit"
     },
     "dependencies": {
@@ -15,7 +15,7 @@
         "hono": "^4.6.14"
     },
     "devDependencies": {
-        "@types/node": "^20",
+        "@types/node": "^22",
         "tsx": "^4.19.2",
         "typescript": "^5"
     }

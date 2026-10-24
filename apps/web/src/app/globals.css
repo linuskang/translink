@@ -1,12 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-    --color-bg: #0a0a0a;
-    --color-surface: rgba(255, 255, 255, 0.05);
-    --color-border: rgba(255, 255, 255, 0.1);
-    --color-text: #fafafa;
-    --color-muted: rgba(255, 255, 255, 0.4);
-    --color-accent: #f97316;
+    --color-bg: #0c0c0e;
+    --color-surface: #111113;
+    --color-border: #27272a;
+    --color-text: #f4f4f5;
+    --color-muted: #a1a1aa;
     --font-sans: var(--font-geist-sans);
 }
 
@@ -17,6 +16,7 @@ body {
     margin: 0;
     overflow: hidden;
     overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -42,44 +42,42 @@ body {
     height: 100%;
 }
 
-.map-status-control,
-.map-search-control {
-    min-height: 34px;
-    border: 0;
-    border-radius: 4px;
-    background: #fff;
-    color: #222;
-    box-shadow: 0 0 0 2px rgb(0 0 0 / 10%);
-    font:
-        13px/20px var(--font-sans),
-        system-ui,
-        sans-serif;
+/* Utilitarian dark MapLibre controls */
+.maplibregl-ctrl-group {
+    background: #111113 !important;
+    border: 1px solid #27272a !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 45%) !important;
 }
 
-.map-status-control {
-    display: flex;
-    align-items: center;
-    padding: 7px 10px;
+.maplibregl-ctrl-group button {
+    border-color: #27272a !important;
 }
 
-.map-search-control {
-    width: min(220px, calc(100vw - 90px));
-    padding: 7px 10px;
-    outline: none;
+.maplibregl-ctrl-group button:hover {
+    background-color: #1c1c1f !important;
 }
 
-.map-search-control:focus {
-    box-shadow: 0 0 0 2px #fb923c;
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    filter: invert(0.92);
 }
 
-.maplibregl-ctrl-top-left {
-    top: env(safe-area-inset-top);
-    left: env(safe-area-inset-left);
+.maplibregl-ctrl-scale {
+    background: rgb(17 17 19 / 88%) !important;
+    border-color: #52525b !important;
+    color: #d4d4d8 !important;
+    font-size: 10px !important;
+    border-radius: 3px !important;
 }
 
-.maplibregl-ctrl-top-right {
-    top: env(safe-area-inset-top);
-    right: env(safe-area-inset-right);
+.maplibregl-ctrl-attrib.maplibregl-compact {
+    background-color: rgb(17 17 19 / 88%) !important;
+    color: #a1a1aa !important;
+    border: 1px solid #27272a !important;
+}
+
+.maplibregl-ctrl-attrib a {
+    color: #d4d4d8 !important;
 }
 
 .maplibregl-ctrl-bottom-left {
@@ -90,25 +88,4 @@ body {
 .maplibregl-ctrl-bottom-right {
     right: env(safe-area-inset-right);
     bottom: env(safe-area-inset-bottom);
-}
-
-@media (max-width: 520px) {
-    .maplibregl-ctrl-top-right {
-        right: 0;
-        left: 0;
-        width: 100%;
-    }
-
-    .maplibregl-ctrl-top-right .map-search-control {
-        float: none;
-        width: calc(
-            100% - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px
-        );
-        margin-right: calc(env(safe-area-inset-right) + 10px);
-        margin-left: calc(env(safe-area-inset-left) + 10px);
-    }
-
-    .maplibregl-ctrl-top-left {
-        top: calc(env(safe-area-inset-top) + 44px);
-    }
 }

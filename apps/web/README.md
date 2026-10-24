@@ -1,14 +1,14 @@
-# Web App
+# `@translink/web`
 
-Next.js 16 frontend for the Translink realtime transit map.
+Next.js 16 real-time South East Queensland transit map and installable mobile Progressive Web App (PWA).
 
 ## Stack
 
-- Next.js 16 (App Router, standalone output)
-- React 19
-- MapLibre GL + MapTiler dark tiles
-- TanStack React Query (30s polling)
-- Tailwind CSS 4 + shadcn/ui
+- **Next.js 16** (App Router, standalone Docker output)
+- **React 19**
+- **MapLibre GL** (MapTiler `dataviz-dark` vector style when `NEXT_PUBLIC_MAPTILER_KEY` is provided, with automatic keyless fallback to CARTO Dark Matter `@2x` raster tiles)
+- **TanStack React Query** (on-demand vehicle/route/stop detail queries) + custom visibility-aware incremental delta sync hook
+- **Tailwind CSS 4** (flat, high-contrast dark transit palette with zero gradients)
 
 ## Commands
 
@@ -20,65 +20,12 @@ npm --workspace @translink/web run build    # next build (standalone)
 npm --workspace @translink/web run lint     # eslint
 ```
 
-Or run all apps through Turbo:
+## Key Features
 
-```bash
-npm run dev
-npm run lint
-npm run build
-```
-
-## Environment Variables
-
-Set in `.env.local` at the repo root (see `.example.env`):
-
-| Variable                   | Required | Description                                                                                        |
-| -------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_MAPTILER_KEY` | Yes      | MapTiler API key for map tiles (exposed to browser).                                               |
-| `VEHICLE_API_URL`          | Yes      | Upstream API URL (server-side only). Defaults to `http://localhost:8000/v1/seq/vehicle_positions`. |
-
-In Docker Compose, `VEHICLE_API_URL` points to the API container and
-`NEXT_PUBLIC_MAPTILER_KEY` is read by the web server at runtime. The public map
-configuration is served to the browser by `/api/map-config`.
-
-## Architecture
-
-- `src/app/page.tsx` — dynamically imports `MapCanvas` (SSR disabled).
-- `src/app/api/vehicles/route.ts` — Next.js server route that proxies
-  `GET /api/vehicles` to the upstream `VEHICLE_API_URL`.
-- `src/hooks/useVehicles.ts` — TanStack Query hook that polls
-  `/api/vehicles` every 30 seconds.
-- `src/components/map/MapCanvas.tsx` — MapLibre GL map with live vehicle
-  markers and route-number filtering.
-- `src/lib/geo.ts` — converts vehicle entities to GeoJSON FeatureCollections.
-
-## Structure
-
-```text
-apps/web
-├── src/
-│   ├── app/
-│   │   ├── api/vehicles/route.ts   # Server proxy to API
-│   │   ├── globals.css              # Tailwind + theme
-│   │   ├── layout.tsx               # Root layout (Geist font, dark)
-│   │   ├── page.tsx                 # Map page
-│   │   └── providers.tsx            # TanStack Query provider
-│   ├── components/
-│   │   ├── map/                     # MapCanvas
-│   │   └── ui/                     # shadcn/ui components
-│   ├── hooks/                       # useVehicles, useIsMobile
-│   ├── lib/                         # geo, utils
-│   └── types/                       # Shared types
-├── Dockerfile                       # Multi-stage build (repo root context)
-├── next.config.ts                   # standalone output
-├── tsconfig.json
-└── package.json
-```
-
-## Docker
-
-The production image is built from the repo root context with
-`apps/web/Dockerfile` so npm workspaces and the root lockfile are available
-for `npm ci`. The builder runs `next build` (standalone mode), then the
-runner copies only the standalone server, static assets, and public files
-into a minimal image.
+- **100% Fleet Coverage with Minimal Mobile Data**: [`src/hooks/useVehicles.ts`](./src/hooks/useVehicles.ts) synchronizes against `/api/vehicles/sync` using append-only route/headsign dictionaries, integer coordinate deltas (`?since=<seq>&epoch=<epoch>`), `ETag` (`304 Not Modified`), Brotli compression, `totalCount` invariant verification, and automatic background pause when the phone screen or browser tab is hidden.
+- **Interactive Route & Direction Inspector**: Clicking any bus, train, ferry, or tram opens [`src/components/inspector/InspectorSheet.tsx`](./src/components/inspector/InspectorSheet.tsx) and draws its exact GTFS polyline + stops on [`src/components/map/MapCanvas.tsx`](./src/components/map/MapCanvas.tsx). Users can switch between **Inbound** and **Outbound** directions, overlay both direction paths simultaneously (solid primary + dashed secondary polyline), inspect live per-stop arrival predictions and delays, or tap any stop for upcoming departures.
+- **GPU-Rotated Directional Markers**: Vehicles render crisp `@2x` canvas badges colored by official Translink route colors (`BUZ`, `CityGlider`, QR rail line colors, Ferry, G:link) with directional heading arrows and smooth 1.1s GPS interpolation that idles at 0 FPS between updates to save mobile battery.
+- **Installable Mobile PWA**:
+    - Web App Manifest ([`src/app/manifest.ts`](./src/app/manifest.ts)) + Apple touch icon & standalone status-bar metadata ([`src/app/layout.tsx`](./src/app/layout.tsx)).
+    - Service worker ([`public/sw.js`](./public/sw.js)) caching app shell static assets and a bounded LRU basemap tile cache while keeping `/api/*` live.
+    - Responsive 3-snap draggable bottom sheet on mobile (`peek` / `half` / `full`) with iOS safe-area inset handling (`env(safe-area-inset-*)`).

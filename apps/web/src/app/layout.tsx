@@ -9,15 +9,42 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-    title: "Translink",
-    description: "Real-time SEQ transit map",
+    title: "Translink SEQ Live",
+    description:
+        "Real-time South East Queensland bus, train, ferry, and tram tracking with routes, directions, and live arrivals",
+    applicationName: "Translink",
+    appleWebApp: {
+        capable: true,
+        statusBarStyle: "black-translucent",
+        title: "Translink",
+    },
+    formatDetection: {
+        telephone: false,
+    },
+    icons: {
+        icon: [
+            { url: "/icon.svg", type: "image/svg+xml" },
+            { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+            { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
+        apple: [
+            {
+                url: "/apple-touch-icon.png",
+                sizes: "180x180",
+                type: "image/png",
+            },
+        ],
+    },
 };
 
 export const viewport: Viewport = {
     width: "device-width",
     initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: "cover",
     interactiveWidget: "resizes-content",
-    themeColor: "#0a0a0a",
+    themeColor: "#0c0c0e",
     colorScheme: "dark",
 };
 
