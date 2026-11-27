@@ -6,7 +6,10 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "eslint"
+        "lint": "eslint",
+        "copy:worker": "node -e \"const fs=require('fs'),path=require('path');const src=path.join(path.dirname(require.resolve('maplibre-gl/package.json')),'dist/maplibre-gl-worker.mjs');fs.copyFileSync(src,'public/maplibre-gl-worker.mjs');\"",
+        "prebuild": "npm run copy:worker",
+        "predev": "npm run copy:worker"
     },
     "dependencies": {
         "@tanstack/react-query": "^5.99.0",
