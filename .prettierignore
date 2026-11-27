@@ -16,6 +16,7 @@ next-env.d.ts
 
 # generated assets
 apps/api/data/
+apps/web/public/maplibre*
 
 # lockfiles
 package-lock.json

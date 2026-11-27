@@ -3,7 +3,7 @@
     "tasks": {
         "build": {
             "dependsOn": ["^build"],
-            "outputs": [".next/**", "!.next/cache/**"]
+            "outputs": [".next/**", "!.next/cache/**", "public/maplibre-gl-worker.mjs"]
         },
         "@translink/api#build": {
             "dependsOn": ["^build"],

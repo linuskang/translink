@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+if (typeof window !== "undefined") {
+    maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
+}
 import type {
     GeoJSONSource,
     MapGeoJSONFeature,
